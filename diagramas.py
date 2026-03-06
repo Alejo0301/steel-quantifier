@@ -145,44 +145,72 @@ def dibujar_estribo(elem):
     ax.text(b / 2, h / 2, elem["diametro"], ha="center", va="center",
             fontsize=8, fontweight="bold", color=COLOR_BARRA, alpha=0.5)
 
+    # Nomenclatura del gancho: G.10, G.15, etc.
+    gv_cm = int(round(gv * 100))
+    label_g = f"G.{gv_cm:02d}" if gv_cm >= 10 else f"G.{gv_cm}"
+    # Posición: junto al primer gancho (x1, h), desplazado arriba-izq
+    ax.text(x1 - g * 0.15, h + g * 0.25, label_g,
+            ha="right", va="bottom", fontsize=6.5,
+            color=COLOR_GANCHO, fontweight="bold")
+
     return _fig_a_bytes(fig)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  GANCHO ABIERTO
+#  GANCHO TIPO S (elemento G del txt)
+#  Cuerpo horizontal + gancho izq sube y dobla derecha +
+#                       gancho der baja y dobla izquierda
 # ─────────────────────────────────────────────────────────────────────────────
 def dibujar_gancho(elem):
-    B  = elem["base"]
-    gv = elem.get("gancho_val", 0.1)
+    B   = elem["base"]       # longitud del cuerpo
+    gv  = elem.get("gancho_val", 0.1)
 
-    escala = 2.0 / max(B, 0.01)
+    escala = 2.5 / max(B, 0.01)
     b  = B  * escala
-    g  = gv * escala
+    g  = gv * escala * 1.2   # longitud visual del gancho
 
-    margin = 0.3
-    fig_w  = max(2.0, b + margin * 2)
-    fig_h  = 1.5
+    margin = 0.4
+    fig_w  = max(3.0, b + margin * 2)
+    fig_h  = max(2.0, g * 2 + margin * 2)
 
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
     ax.set_xlim(-margin, b + margin)
-    ax.set_ylim(-0.5, 0.8)
+    ax.set_ylim(-g - margin, g + margin)
+    ax.set_aspect("equal")
     ax.axis("off")
 
     y0 = 0.0
+
+    # Cuerpo horizontal
     ax.plot([0, b], [y0, y0], color=COLOR_BARRA, lw=LW, solid_capstyle="round")
 
+    # Gancho IZQUIERDO: sube y dobla a la derecha (90°)
     ax.plot([0, 0], [y0, y0 + g], color=COLOR_GANCHO, lw=LW_GANCHO,
             solid_capstyle="round")
-    ax.plot([0, -g / math.sqrt(2)], [y0 + g, y0 + g + g / math.sqrt(2)],
-            color=COLOR_GANCHO, lw=LW_GANCHO, solid_capstyle="round")
-
-    ax.plot([b, b], [y0, y0 + g], color=COLOR_GANCHO, lw=LW_GANCHO,
+    ax.plot([0, g * 0.6], [y0 + g, y0 + g], color=COLOR_GANCHO, lw=LW_GANCHO,
             solid_capstyle="round")
-    ax.plot([b, b + g / math.sqrt(2)], [y0 + g, y0 + g + g / math.sqrt(2)],
-            color=COLOR_GANCHO, lw=LW_GANCHO, solid_capstyle="round")
 
-    ax.text(b / 2, y0 - 0.3, elem["diametro"], ha="center", va="top",
-            fontsize=8, fontweight="bold", color=COLOR_BARRA)
+    # Gancho DERECHO: baja y dobla a la izquierda (90°, opuesto)
+    ax.plot([b, b], [y0, y0 - g], color=COLOR_GANCHO, lw=LW_GANCHO,
+            solid_capstyle="round")
+    ax.plot([b, b - g * 0.6], [y0 - g, y0 - g], color=COLOR_GANCHO, lw=LW_GANCHO,
+            solid_capstyle="round")
+
+    # Etiquetas ganchos
+    gv_cm = int(round(gv * 100))
+    g_label = f"G.{gv_cm:02d}" if gv_cm >= 10 else f"G.{gv_cm}"
+    ax.text(-margin * 0.4, y0 + g * 0.5, g_label, ha="right", va="center",
+            fontsize=6.5, color=COLOR_GANCHO, fontweight="bold")
+    ax.text(b + margin * 0.4, y0 - g * 0.5, g_label, ha="left", va="center",
+            fontsize=6.5, color=COLOR_GANCHO, fontweight="bold")
+
+    # Diámetro y longitud cuerpo
+    ax.text(b / 2, y0 + 0.15, elem["diametro"], ha="center", va="bottom",
+            fontsize=8, fontweight="bold", color=COLOR_BARRA, alpha=0.7)
+    ax.annotate("", xy=(b, y0 - g * 0.35), xytext=(0, y0 - g * 0.35),
+                arrowprops=dict(arrowstyle="<->", color="#666666", lw=0.7))
+    ax.text(b / 2, y0 - g * 0.55, f"{B:.2f} m", ha="center", va="top",
+            fontsize=6.5, color="#666666")
 
     return _fig_a_bytes(fig)
 
