@@ -534,15 +534,10 @@ def generar_pdf(vigas, output_path, proyecto="TRINIDAD CASA 2"):
         ("LEFTPADDING",   (0, 0), (-1, -1), 8),
     ]))
 
-    bloque = [
-        t_sec,
-        Spacer(1, 1 * mm),
-        _tabla_elementos(barras_agrupadas, col_widths, item_global),
-        Spacer(1, 1 * mm),
-        _resumen_agrupado(barras_agrupadas, usable_w),
-        Spacer(1, 0.35 * cm),
-    ]
-    story.append(KeepTogether(bloque))
+    # Cabecera + tabla directamente al story sin KeepTogether (evita página en blanco)
+    story.append(t_sec)
+    story.append(Spacer(1, 1 * mm))
+    story.append(_tabla_elementos(barras_agrupadas, col_widths, item_global))
 
     # Página de resumen final
     story.append(PageBreak())
