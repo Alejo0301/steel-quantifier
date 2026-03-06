@@ -89,9 +89,11 @@ def dibujar_barra(elem):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  ESTRIBO — ganchos a 135° correctos
-# Gancho 1: en esquina sup-der, sobre barra horizontal superior → diagonal abajo-izq
-# Gancho 2: en barra vertical derecha ~65% altura → diagonal arriba-izq
+#  ESTRIBO — ganchos a 135° según imagen de referencia
+#  Dos ganchos paralelos diagonales en esquina superior derecha:
+#  Gancho 1: desde la esquina (b, h) hacia abajo-izquierda
+#  Gancho 2: desde un punto sobre la barra horizontal superior (desplazado a la izq)
+#            también hacia abajo-izquierda, paralelo al primero
 # ─────────────────────────────────────────────────────────────────────────────
 def dibujar_estribo(elem):
     B  = elem["base"]
@@ -101,7 +103,7 @@ def dibujar_estribo(elem):
     escala = 2.8 / max(B, H, 0.01)
     b = B * escala
     h = H * escala
-    g = gv * escala * 1.5
+    g = gv * escala * 1.0   # longitud visual del gancho
 
     margin = 0.60
     fig_w  = max(3.2, b + 2 * margin)
@@ -113,27 +115,26 @@ def dibujar_estribo(elem):
     ax.set_aspect("equal")
     ax.axis("off")
 
-    # Rectángulo principal
+    # Rectángulo principal — en rojo igual que los ganchos
     rect = plt.Polygon(
         [(0, 0), (b, 0), (b, h), (0, h)],
         closed=True, fill=False,
-        edgecolor=COLOR_BARRA, linewidth=LW
+        edgecolor=COLOR_GANCHO, linewidth=LW
     )
     ax.add_patch(rect)
 
-    # GANCHO 1: esquina superior derecha, sale de la barra horizontal superior
-    # Apunta hacia adentro a 135° (diagonal abajo-izquierda)
-    dx1 = -g / math.sqrt(2)
-    dy1 = -g / math.sqrt(2)
-    ax.plot([b, b + dx1], [h, h + dy1],
+    # Dirección diagonal 135° hacia adentro: abajo-izquierda
+    dx = -g / math.sqrt(2)
+    dy = -g / math.sqrt(2)
+
+    # GANCHO 1: origen en (0.70*b, h) — barra horizontal superior, 30% desde esquina derecha
+    x1 = 0.70 * b
+    ax.plot([x1, x1 + dx], [h, h + dy],
             color=COLOR_GANCHO, lw=LW_GANCHO, solid_capstyle="round")
 
-    # GANCHO 2: en barra vertical derecha, a ~60% de la altura
-    # Sale hacia adentro a 135° (diagonal arriba-izquierda)
-    y2 = h * 0.60
-    dx2 = -g / math.sqrt(2)
-    dy2 =  g / math.sqrt(2)
-    ax.plot([b, b + dx2], [y2, y2 + dy2],
+    # GANCHO 2: origen en (b, 0.70*h) — barra vertical derecha, 30% desde esquina superior
+    y2 = 0.70 * h
+    ax.plot([b, b + dx], [y2, y2 + dy],
             color=COLOR_GANCHO, lw=LW_GANCHO, solid_capstyle="round")
 
     # Cotas
