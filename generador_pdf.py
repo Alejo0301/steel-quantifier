@@ -369,14 +369,14 @@ def generar_pdf(vigas, output_path, proyecto="TRINIDAD CASA 2"):
     # Anchos de columna ajustados a oficio vertical
     # ITEM | DIAGRAMA | CANT | DIAM | LONG | PU | PT | UBIC
     col_widths = [
-        usable_w * 0.055,   # ITEM
-        usable_w * 0.245,   # DIAGRAMA — más ancho
-        usable_w * 0.055,   # CANT
-        usable_w * 0.07,    # DIÁMETRO
-        usable_w * 0.09,    # LONG
-        usable_w * 0.09,    # PU
-        usable_w * 0.09,    # PT
-        usable_w * 0.105,   # UBICACIÓN
+        usable_w * 0.06,    # ITEM
+        usable_w * 0.30,    # DIAGRAMA
+        usable_w * 0.06,    # CANT
+        usable_w * 0.08,    # DIÁMETRO
+        usable_w * 0.125,   # LONG
+        usable_w * 0.125,   # PU
+        usable_w * 0.125,   # PT
+        usable_w * 0.125,   # UBICACIÓN
     ]
 
     story = []
@@ -398,7 +398,7 @@ def generar_pdf(vigas, output_path, proyecto="TRINIDAD CASA 2"):
                 Spacer(1, 1 * mm),
                 _tabla_elementos(viga, col_widths, item_global),
                 Spacer(1, 1 * mm),
-                _resumen_viga_por_diametro(viga, usable_w * 0.70),
+                _resumen_viga_por_diametro(viga, usable_w),
                 Spacer(1, 0.35 * cm),
             ]
             story.append(KeepTogether(bloque))
