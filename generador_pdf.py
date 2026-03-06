@@ -202,25 +202,94 @@ def _resumen_viga_por_diametro(viga, col_total_w):
     return t
 
 
+
 # ─────────────────────────────────────────────────────────────────────────────
-#  TABLA DE ELEMENTOS DE UNA VIGA
+#  AGRUPACIÓN DE BARRAS SIMILARES EN TODAS LAS VIGAS
 # ─────────────────────────────────────────────────────────────────────────────
-def _tabla_elementos(viga, col_widths, item_global):
+def _agrupar_barras(vigas):
+    """
+    Agrupa barras idénticas de todas las vigas en una sola fila.
+    Criterio de igualdad: tipo + diámetro + longitud_total + ganchos + dimensiones.
+    Suma cantidades y pesos. Lista ubicaciones.
+    NO modifica los datos originales — solo genera una lista plana agrupada.
+    """
+    from collections import OrderedDict
+
+    def _clave(elem):
+        if elem["tipo"] == "BARRA":
+            return (
+                "BARRA",
+                elem["diametro"],
+                round(elem["longitud_total"], 4),
+                round(elem.get("gancho_izq", 0.0), 4),
+                round(elem.get("gancho_der", 0.0), 4),
+                elem.get("tipo_gancho_izq", ""),
+                elem.get("tipo_gancho_der", ""),
+            )
+        elif elem["tipo"] == "ESTRIBO":
+            return (
+                "ESTRIBO",
+                elem["diametro"],
+                round(elem["longitud_total"], 4),
+                round(elem.get("base", 0.0), 4),
+                round(elem.get("altura", 0.0), 4),
+            )
+        else:
+            return (
+                elem["tipo"],
+                elem["diametro"],
+                round(elem["longitud_total"], 4),
+            )
+
+    grupos = OrderedDict()   # clave → dict acumulado
+
+    for viga in vigas:
+        nv = viga["cantidad_vigas"]
+        ubicacion_id = f"{viga['nombre']}/{viga['ubicacion']}"
+        for elem in viga["barras"]:
+            k = _clave(elem)
+            cant_real = elem["cantidad"] * nv
+            peso_real = elem["peso_total"] * nv
+            # peso_unit es por barra individual, peso_real = peso_unit * cantidad * nv
+            peso_real_correcto = elem["peso_unit"] * cant_real
+            if k not in grupos:
+                grupos[k] = {
+                    "elem":        elem,
+                    "cantidad":    cant_real,
+                    "peso_total":  peso_real_correcto,
+                    "peso_unit":   elem["peso_unit"],
+                    "ubicaciones": [ubicacion_id],
+                }
+            else:
+                grupos[k]["cantidad"]   += cant_real
+                grupos[k]["peso_total"] += peso_real_correcto
+                if ubicacion_id not in grupos[k]["ubicaciones"]:
+                    grupos[k]["ubicaciones"].append(ubicacion_id)
+
+    return list(grupos.values())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TABLA DE ELEMENTOS AGRUPADOS
+# ─────────────────────────────────────────────────────────────────────────────
+def _tabla_elementos(grupos, col_widths, item_global):
+    """grupos: lista devuelta por _agrupar_barras()"""
     HEADERS = ["ITEM", "DIAGRAMA", "CANT.", "DIÁMETRO",
                "LONG. TOTAL\n(m)", "PESO UNIT.\n(kg)", "PESO TOTAL\n(kg)", "UBICACIÓN"]
 
     filas = [HEADERS]
     row_heights = [20]
 
-    for elem in viga["barras"]:
-        item_str = f"{item_global[0]:04d}"
+    for g in grupos:
+        elem      = g["elem"]
+        item_str  = f"{item_global[0]:04d}"
         item_global[0] += 1
 
         img_bytes = generar_diagrama(elem)
         if img_bytes:
             img = Image(io.BytesIO(img_bytes))
             max_w = col_widths[1] - 3 * mm
-            max_h = 2.6 * cm        # más alto para mejor visibilidad
+            max_h = 2.6 * cm
             ratio = min(max_w / img.imageWidth, max_h / img.imageHeight)
             img.drawWidth  = img.imageWidth  * ratio
             img.drawHeight = img.imageHeight * ratio
@@ -235,15 +304,21 @@ def _tabla_elementos(viga, col_widths, item_global):
         else:
             desc_long = f"{elem['longitud_total']:.3f}"
 
+        # Ubicaciones: si son muchas, separar por coma en varias líneas
+        ubicacion_txt = "\n".join(g["ubicaciones"])
+
+        est_ubic = ParagraphStyle("ubic", parent=estilos["Normal"],
+                                  fontSize=6.5, fontName="Helvetica", alignment=TA_CENTER)
+
         fila = [
-            Paragraph(item_str,                      est_celda_bold),
+            Paragraph(item_str,                       est_celda_bold),
             diagrama_cell,
-            Paragraph(str(elem["cantidad"]),         est_celda),
-            Paragraph(elem["diametro"],              est_celda_bold),
-            Paragraph(desc_long,                     est_celda),
-            Paragraph(f"{elem['peso_unit']:.3f}",    est_celda),
-            Paragraph(f"{elem['peso_total']:.3f}",   est_celda_bold),
-            Paragraph(viga["ubicacion"],             est_celda),
+            Paragraph(str(g["cantidad"]),             est_celda),
+            Paragraph(elem["diametro"],               est_celda_bold),
+            Paragraph(desc_long,                      est_celda),
+            Paragraph(f"{g['peso_unit']:.3f}",        est_celda),
+            Paragraph(f"{g['peso_total']:.3f}",       est_celda_bold),
+            Paragraph(ubicacion_txt,                  est_ubic),
         ]
         filas.append(fila)
         row_heights.append(2.7 * cm)
@@ -263,6 +338,54 @@ def _tabla_elementos(viga, col_widths, item_global):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("LEFTPADDING",   (0, 0), (-1, -1), 3),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 3),
+    ]))
+    return t
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  RESUMEN AGRUPADO POR DIÁMETRO (para lista global agrupada)
+# ─────────────────────────────────────────────────────────────────────────────
+def _resumen_agrupado(grupos, col_total_w):
+    """Mini resumen por diámetro a partir de la lista agrupada."""
+    from collections import defaultdict
+    grupo_long = defaultdict(float)
+    grupo_cant = defaultdict(int)
+
+    for g in grupos:
+        diam = g["elem"]["diametro"]
+        grupo_long[diam] += g["elem"]["longitud_total"] * g["cantidad"]
+        grupo_cant[diam] += g["cantidad"]
+
+    est_mini   = ParagraphStyle("mini2",  parent=estilos["Normal"],
+                                fontSize=7, fontName="Helvetica",      alignment=TA_CENTER)
+    est_mini_b = ParagraphStyle("minib2", parent=estilos["Normal"],
+                                fontSize=7, fontName="Helvetica-Bold", alignment=TA_CENTER)
+
+    filas = [[
+        Paragraph("AGRUPACIÓN POR DIÁMETRO", est_mini_b),
+        Paragraph("N° BARRAS TOTAL",          est_mini_b),
+        Paragraph("LONG. ACUMULADA (m)",       est_mini_b),
+    ]]
+    for diam in sorted(grupo_long.keys(),
+                       key=lambda x: int(x.replace("#","").replace("BAJA","0"))):
+        filas.append([
+            Paragraph(diam,                         est_mini_b),
+            Paragraph(str(grupo_cant[diam]),        est_mini),
+            Paragraph(f"{grupo_long[diam]:.2f} m",  est_mini),
+        ])
+
+    cws = [col_total_w * 0.40, col_total_w * 0.25, col_total_w * 0.35]
+    t = Table(filas, colWidths=cws)
+    t.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, 0), HexColor("#eef0f8")),
+        ("GRID",          (0, 0), (-1, -1), 0.3, GRIS_BORDE),
+        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING",    (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [BLANCO, GRIS_FILA]),
+        ("LINEABOVE",     (0, 0), (-1, 0),  1.0, AZUL_SUB),
     ]))
     return t
 
@@ -385,23 +508,41 @@ def generar_pdf(vigas, output_path, proyecto="TRINIDAD CASA 2"):
 
     item_global = [1]
 
-    grupos = defaultdict(list)
-    for v in vigas:
-        grupos[v["ubicacion"]].append(v)
+    # Agrupar todas las barras idénticas de todas las vigas
+    barras_agrupadas = _agrupar_barras(vigas)
 
-    for ubicacion, grupo_vigas in grupos.items():
-        story.append(Spacer(1, 0.3 * cm))
+    # Verificación de peso
+    peso_original = sum(
+        e["peso_unit"] * e["cantidad"] * v["cantidad_vigas"]
+        for v in vigas for e in v["barras"]
+    )
+    peso_agrupado = sum(g["peso_total"] for g in barras_agrupadas)
+    print(f"  Peso original:  {peso_original:.3f} kg")
+    print(f"  Peso agrupado:  {peso_agrupado:.3f} kg")
+    assert abs(peso_original - peso_agrupado) < 0.05, f"ERROR: pesos no coinciden ({peso_original:.3f} vs {peso_agrupado:.3f})!"
 
-        for viga in grupo_vigas:
-            bloque = [
-                _cabecera_viga(viga, usable_w),
-                Spacer(1, 1 * mm),
-                _tabla_elementos(viga, col_widths, item_global),
-                Spacer(1, 1 * mm),
-                _resumen_viga_por_diametro(viga, usable_w),
-                Spacer(1, 0.35 * cm),
-            ]
-            story.append(KeepTogether(bloque))
+    # Cabecera de sección general
+    est_sec_gral = ParagraphStyle("secgral", parent=estilos["Normal"],
+                                  fontSize=9, fontName="Helvetica-Bold",
+                                  textColor=BLANCO, alignment=TA_LEFT, leftIndent=4)
+    t_sec = Table([[Paragraph(f"  PROYECTO: {proyecto}   |   TOTAL BARRAS AGRUPADAS: {len(barras_agrupadas)}   |   PESO TOTAL: {peso_agrupado:.2f} kg", est_sec_gral)]],
+                  colWidths=[usable_w])
+    t_sec.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), AZUL_SUB),
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+    ]))
+
+    bloque = [
+        t_sec,
+        Spacer(1, 1 * mm),
+        _tabla_elementos(barras_agrupadas, col_widths, item_global),
+        Spacer(1, 1 * mm),
+        _resumen_agrupado(barras_agrupadas, usable_w),
+        Spacer(1, 0.35 * cm),
+    ]
+    story.append(KeepTogether(bloque))
 
     # Página de resumen final
     story.append(PageBreak())
