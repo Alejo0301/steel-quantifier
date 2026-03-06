@@ -300,7 +300,10 @@ def _tabla_elementos(grupos, col_widths, item_global):
         if elem["tipo"] == "BARRA":
             desc_long = f"{elem['longitud_total']:.3f}"
         elif elem["tipo"] == "ESTRIBO":
-            desc_long = f"{elem['longitud_total']:.3f}\n({elem['base']:.2f}×{elem['altura']:.2f})"
+            gv = elem.get("gancho_val", 0)
+            gv_cm = int(round(gv * 100))
+            g_label = f"G.{gv_cm:02d}" if gv_cm >= 10 else f"G.{gv_cm}"
+            desc_long = f"Pe+2*{g_label}\n={elem['longitud_total']:.3f}m"
         else:
             desc_long = f"{elem['longitud_total']:.3f}"
 
