@@ -169,7 +169,8 @@ def render_seccion(elementos, tabla, etiqueta_elemento, tab):
         ubicaciones        = sorted({v["ubicacion"] for v in elementos})
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric(f"Total {etiqueta_elemento}", len(elementos))
+        total_unicos = len(set(v['nombre'] for v in elementos))
+        c1.metric(f"Total {etiqueta_elemento}", total_unicos)
         c2.metric("Total elementos",  total_barras)
         c3.metric("Peso total (kg)",  f"{peso_total_general:.2f}")
         c4.metric("Peso total (ton)", f"{peso_total_general/1000:.4f}")

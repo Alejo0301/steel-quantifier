@@ -222,11 +222,22 @@ def parsear_dxf(path, tabla_nsr=None):
         col_grandes  = sorted([c for c in grandes  if xk(c)==ck], key=lambda c:-c['y_max'])
         col_pequenos = sorted([c for c in pequenos if xk(c)==ck], key=lambda c:-c['y_max'])
 
-        # Nombre T3 más cercano
-        x_centro = ck + (col_grandes[0]['x_max']-col_grandes[0]['x_min'])/2 if col_grandes else ck
-        nombre = min(txts_t3, key=lambda t: abs(t['x']-x_centro))['text'] if txts_t3 else "Columna"
+        # Hay 2 cajones grandes por franja (uno por cada columna apilada verticalmente)
+        # Asignar nombre T3 a cada cajón grande por proximidad Y
+        def nombre_para_cajon(grande):
+            if not txts_t3:
+                return "Columna"
+            x_centro = (grande['x_min'] + grande['x_max']) / 2
+            # Filtrar T3 cercanos en X
+            candidatos = [t for t in txts_t3 if abs(t['x'] - x_centro) < 3.0]
+            if not candidatos:
+                candidatos = txts_t3
+            # El T3 más cercano en Y al tope del cajón
+            return min(candidatos, key=lambda t: abs(t['y'] - grande['y_max']))['text']
 
         for idx_g, grande in enumerate(col_grandes):
+            nombre = nombre_para_cajon(grande)
+
             # Cajón pequeño del mismo tramo
             pequeno = next((p for p in col_pequenos
                             if p['y_min'] >= grande['y_min']-0.1
@@ -252,23 +263,32 @@ def parsear_dxf(path, tabla_nsr=None):
                 m = RE_SECCION.match(txt)
                 if m: seccion_global = txt
 
+            # ── Barras de flexión: determinar sub-tramos primero ────────
+            subtramos = _dividir_subtramos(txts_p_all) if txts_p_all else []
+            if not subtramos:
+                subtramos = [(ubic_grande or f"TRAMO{idx_g+1}", [])]
+
+            # Ubicación para los estribos: primera ubicación real encontrada
+            ubic_estribos = ubic_grande
+            if not ubic_estribos:
+                for ubic_st, _ in subtramos:
+                    if ubic_st and 'TRAMO' not in ubic_st:
+                        ubic_estribos = ubic_st
+                        break
+            if not ubic_estribos:
+                ubic_estribos = subtramos[0][0] if subtramos else f"TRAMO{idx_g+1}"
+
             # ── Estribos: una sola entrada por cajón grande ──────────────
             if cant_est_global:
                 barras_est = _construir_barras([], [], long_est_global,
                                                seccion_global, tabla_nsr, cant_est_global)
                 if barras_est:
-                    ubicacion_est = ubic_grande or f"TRAMO{idx_g+1}"
                     peso_est = round(sum(b['peso_total'] for b in barras_est), 3)
                     vigas.append({
-                        'nombre': nombre, 'ubicacion': ubicacion_est,
+                        'nombre': nombre, 'ubicacion': ubic_estribos,
                         'cantidad_vigas': 1, 'seccion': seccion_global,
                         'barras': barras_est, 'peso_total': peso_est,
                     })
-
-            # ── Barras de flexión: una entrada por sub-tramo ──────────────
-            subtramos = _dividir_subtramos(txts_p_all) if txts_p_all else []
-            if not subtramos:
-                subtramos = [(ubic_grande or f"TRAMO{idx_g+1}", [])]
 
             for ubic, txts_sub in subtramos:
                 ubicacion = ubic or ubic_grande or f"TRAMO{idx_g+1}"
