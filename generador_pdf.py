@@ -552,3 +552,194 @@ def generar_pdf(vigas, output_path, proyecto="TRINIDAD CASA 2"):
 
     doc.build(story, onFirstPage=_pie_pagina, onLaterPages=_pie_pagina)
     print(f"✅ PDF generado: {output_path}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  RESUMEN PONDERADO COMBINADO
+# ─────────────────────────────────────────────────────────────────────────────
+def _tabla_resumen_combinado(vigas, columnas, col_total_w, proyecto):
+    """Resumen final combinado: vigas + columnas por diámetro."""
+    from collections import defaultdict
+
+    def acumular(elementos, resumen_p, resumen_l, resumen_c, resumen_p_v, resumen_p_c, es_columna):
+        for v in elementos:
+            nv = v["cantidad_vigas"]
+            for e in v["barras"]:
+                d = e["diametro"]
+                resumen_p[d] += e["peso_total"] * nv
+                resumen_l[d] += e["longitud_total"] * e["cantidad"] * nv
+                resumen_c[d] += e["cantidad"] * nv
+                if es_columna:
+                    resumen_p_c[d] += e["peso_total"] * nv
+                else:
+                    resumen_p_v[d] += e["peso_total"] * nv
+
+    rp, rl, rc = defaultdict(float), defaultdict(float), defaultdict(int)
+    rp_v, rp_c = defaultdict(float), defaultdict(float)
+
+    acumular(vigas,    rp, rl, rc, rp_v, rp_c, False)
+    acumular(columnas, rp, rl, rc, rp_v, rp_c, True)
+
+    est_rs = ParagraphStyle("rs2", parent=estilos["Normal"], fontSize=11,
+                            fontName="Helvetica-Bold", textColor=BLANCO,
+                            alignment=TA_CENTER)
+    t_tit = Table([[Paragraph(f"RESUMEN PONDERADO COMPLETO — {proyecto.upper()}", est_rs)]],
+                  colWidths=[col_total_w])
+    t_tit.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0),(-1,-1), AZUL_HEADER),
+        ("TOPPADDING",    (0,0),(-1,-1), 9),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 9),
+    ]))
+
+    HEADERS = ["DIÁMETRO", "N° BARRAS", "LONG. ACUM. (m)",
+               "PESO VIGAS (kg)", "PESO COLS (kg)",
+               "PESO TOTAL (kg)", "PESO TOTAL (ton)"]
+    filas = [[Paragraph(h, est_celda_bold) for h in HEADERS]]
+
+    tp, tl, tc = 0.0, 0.0, 0
+
+    for diam in sorted(rp.keys(), key=lambda x: int(x.replace("#","").replace("BAJA","0"))):
+        peso = rp[diam]; lon = rl[diam]; cant = rc[diam]
+        tp += peso; tl += lon; tc += cant
+        filas.append([
+            Paragraph(diam,                 est_celda_bold),
+            Paragraph(str(cant),            est_celda),
+            Paragraph(f"{lon:.2f}",         est_celda),
+            Paragraph(f"{rp_v[diam]:.2f}",  est_celda),
+            Paragraph(f"{rp_c[diam]:.2f}",  est_celda),
+            Paragraph(f"{peso:.2f}",        est_celda_bold),
+            Paragraph(f"{peso/1000:.4f}",   est_celda_bold),
+        ])
+
+    filas.append([
+        Paragraph("TOTAL GENERAL",      est_celda_bold),
+        Paragraph(str(tc),              est_celda_bold),
+        Paragraph(f"{tl:.2f}",         est_celda_bold),
+        Paragraph(f"{sum(rp_v.values()):.2f}", est_celda_bold),
+        Paragraph(f"{sum(rp_c.values()):.2f}", est_celda_bold),
+        Paragraph(f"{tp:.2f}",         est_celda_bold),
+        Paragraph(f"{tp/1000:.4f}",    est_celda_bold),
+    ])
+
+    cws = [col_total_w*0.10, col_total_w*0.10, col_total_w*0.16,
+           col_total_w*0.16, col_total_w*0.16,
+           col_total_w*0.16, col_total_w*0.16]
+    t_r = Table(filas, colWidths=cws)
+    t_r.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0),  (-1,0),  AZUL_SUB),
+        ("TEXTCOLOR",     (0,0),  (-1,0),  BLANCO),
+        ("FONTNAME",      (0,0),  (-1,0),  "Helvetica-Bold"),
+        ("ALIGN",         (0,0),  (-1,-1), "CENTER"),
+        ("VALIGN",        (0,0),  (-1,-1), "MIDDLE"),
+        ("GRID",          (0,0),  (-1,-1), 0.4, colors.grey),
+        ("ROWBACKGROUNDS",(0,1),  (-1,-2), [BLANCO, GRIS_FILA]),
+        ("BACKGROUND",    (0,-1), (-1,-1), AZUL_SUB),
+        ("TEXTCOLOR",     (0,-1), (-1,-1), BLANCO),
+        ("FONTNAME",      (0,-1), (-1,-1), "Helvetica-Bold"),
+        ("LINEABOVE",     (0,-1), (-1,-1), 1.5, AZUL_HEADER),
+        ("TOPPADDING",    (0,0),  (-1,-1), 5),
+        ("BOTTOMPADDING", (0,0),  (-1,-1), 5),
+    ]))
+
+    return [t_tit, t_r]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PDF COMBINADO VIGAS + COLUMNAS
+# ─────────────────────────────────────────────────────────────────────────────
+def generar_pdf_combinado(vigas, columnas, output_path, proyecto="TRINIDAD CASA 2"):
+    """
+    Genera PDF completo:
+      1. Sección vigas (tabla + resumen)
+      2. Sección columnas (tabla + resumen)
+      3. Resumen ponderado final combinado
+    """
+    page_w, page_h = PAGE_SIZE
+    margin = 1.2 * cm
+
+    doc = SimpleDocTemplate(
+        output_path,
+        pagesize=PAGE_SIZE,
+        leftMargin=margin, rightMargin=margin,
+        topMargin=margin, bottomMargin=1.5 * cm,
+        title=f"Cuantificación Completa — {proyecto}",
+        author=INGENIERO
+    )
+
+    usable_w = page_w - 2 * margin
+    col_widths = [
+        usable_w * 0.06,
+        usable_w * 0.30,
+        usable_w * 0.06,
+        usable_w * 0.08,
+        usable_w * 0.125,
+        usable_w * 0.125,
+        usable_w * 0.125,
+        usable_w * 0.125,
+    ]
+
+    story = []
+    item_global = [1]
+
+    def _seccion(elementos, titulo):
+        barras_agrup = _agrupar_barras(elementos)
+        peso_total   = sum(g["peso_total"] for g in barras_agrup)
+
+        est_tit = ParagraphStyle("tit_sec", parent=estilos["Normal"], fontSize=12,
+                                 fontName="Helvetica-Bold", textColor=BLANCO,
+                                 alignment=TA_CENTER)
+        t_tit = Table([[Paragraph(f"━━  {titulo.upper()}  ━━", est_tit)]],
+                      colWidths=[usable_w])
+        t_tit.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0),(-1,-1), AZUL_HEADER),
+            ("TOPPADDING",    (0,0),(-1,-1), 7),
+            ("BOTTOMPADDING", (0,0),(-1,-1), 7),
+        ]))
+
+        est_sub = ParagraphStyle("sub_sec", parent=estilos["Normal"], fontSize=9,
+                                 fontName="Helvetica-Bold", textColor=BLANCO,
+                                 alignment=TA_LEFT, leftIndent=4)
+        t_sub = Table([[Paragraph(
+            f"  PROYECTO: {proyecto}   |   {titulo}: {len(barras_agrup)} elementos agrupados   |   PESO: {peso_total:.2f} kg",
+            est_sub)]],
+            colWidths=[usable_w])
+        t_sub.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0),(-1,-1), AZUL_SUB),
+            ("TOPPADDING",    (0,0),(-1,-1), 5),
+            ("BOTTOMPADDING", (0,0),(-1,-1), 5),
+            ("LEFTPADDING",   (0,0),(-1,-1), 8),
+        ]))
+
+        story.append(_encabezado(proyecto, usable_w))
+        story.append(Spacer(1, 0.4 * cm))
+        story.append(t_tit)
+        story.append(Spacer(1, 1 * mm))
+        story.append(t_sub)
+        story.append(Spacer(1, 1 * mm))
+        story.append(_tabla_elementos(barras_agrup, col_widths, item_global))
+        story.append(PageBreak())
+        story.append(_encabezado(proyecto, usable_w))
+        story.append(Spacer(1, 0.6 * cm))
+        for elem in _tabla_resumen_final(elementos, usable_w):
+            story.append(elem)
+            story.append(Spacer(1, 2 * mm))
+
+    # ── Sección Vigas ──
+    if vigas:
+        _seccion(vigas, "VIGAS")
+
+    # ── Sección Columnas ──
+    if columnas:
+        story.append(PageBreak())
+        _seccion(columnas, "COLUMNAS")
+
+    # ── Resumen combinado final ──
+    story.append(PageBreak())
+    story.append(_encabezado(proyecto, usable_w))
+    story.append(Spacer(1, 0.6 * cm))
+    for elem in _tabla_resumen_combinado(vigas or [], columnas or [], usable_w, proyecto):
+        story.append(elem)
+        story.append(Spacer(1, 2 * mm))
+
+    doc.build(story, onFirstPage=_pie_pagina, onLaterPages=_pie_pagina)
+    print(f"✅ PDF combinado generado: {output_path}")
