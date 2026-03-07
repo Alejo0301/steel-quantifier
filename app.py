@@ -34,6 +34,12 @@ def cargar_columnas(file_bytes, filename):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  INICIALIZAR SESSION STATE
+# ─────────────────────────────────────────────────────────────────────────────
+if "reset_txt" not in st.session_state: st.session_state["reset_txt"] = 0
+if "reset_dxf" not in st.session_state: st.session_state["reset_dxf"] = 0
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  CONFIGURACIÓN
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Cuantificador de Acero", page_icon="🏗️",
@@ -59,9 +65,9 @@ with st.sidebar:
     st.markdown("---")
     proyecto = st.text_input("Nombre del proyecto", value="TRINIDAD CASA 2")
     st.markdown("#### 📂 Vigas (.txt)")
-    uploaded_txt = st.file_uploader("Archivo despiece vigas", type=["txt"], key="up_txt")
+    uploaded_txt = st.file_uploader("Archivo despiece vigas", type=["txt"], key=f"up_txt_{st.session_state['reset_txt']}")
     st.markdown("#### 📐 Columnas (.dxf)")
-    uploaded_dxf = st.file_uploader("Archivo DXF columnas", type=["dxf","DXF"], key="up_dxf")
+    uploaded_dxf = st.file_uploader("Archivo DXF columnas", type=["dxf","DXF"], key=f"up_dxf_{st.session_state['reset_dxf']}")
     st.markdown("---")
     st.caption("v2.1 — NSR-10 Colombia")
 
@@ -206,6 +212,14 @@ def render_seccion(elementos, tabla, etiqueta, tab):
                 st.download_button("⬇️ Descargar PDF", pdf_bytes,
                     file_name=f"Cuantificacion_{etiqueta}_{proyecto.replace(' ','_')}.pdf",
                     mime="application/pdf", use_container_width=True, key=f"dl_{etiqueta}")
+
+        # Botón borrar sección
+        st.markdown("---")
+        reset_key = "reset_txt" if etiqueta == "Vigas" else "reset_dxf"
+        if st.button(f"🗑️ Borrar {etiqueta}", use_container_width=True,
+                     key=f"borrar_{etiqueta}"):
+            st.session_state[reset_key] += 1
+            st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -31,6 +31,7 @@ from diagramas import generar_diagrama
 # ── Paleta ────────────────────────────────────────────────────────────────────
 AZUL_HEADER  = HexColor("#1a1a2e")
 AZUL_SUB     = HexColor("#16213e")
+VERDE_TOTAL  = HexColor("#d4edda")  # verde claro para fila TOTAL
 AZUL_CLARO   = HexColor("#dde3f0")
 GRIS_FILA    = HexColor("#f7f7f9")
 ACENTO       = HexColor("#c0392b")
@@ -633,8 +634,8 @@ def _tabla_resumen_combinado(vigas, columnas, col_total_w, proyecto):
         ("VALIGN",        (0,0),  (-1,-1), "MIDDLE"),
         ("GRID",          (0,0),  (-1,-1), 0.4, colors.grey),
         ("ROWBACKGROUNDS",(0,1),  (-1,-2), [BLANCO, GRIS_FILA]),
-        ("BACKGROUND",    (0,-1), (-1,-1), AZUL_SUB),
-        ("TEXTCOLOR",     (0,-1), (-1,-1), BLANCO),
+        ("BACKGROUND",    (0,-1), (-1,-1), VERDE_TOTAL),
+        ("TEXTCOLOR",     (0,-1), (-1,-1), colors.HexColor("#1a1a2e")),
         ("FONTNAME",      (0,-1), (-1,-1), "Helvetica-Bold"),
         ("LINEABOVE",     (0,-1), (-1,-1), 1.5, AZUL_HEADER),
         ("TOPPADDING",    (0,0),  (-1,-1), 5),
@@ -688,7 +689,7 @@ def generar_pdf_combinado(vigas, columnas, output_path, proyecto="TRINIDAD CASA 
         est_tit = ParagraphStyle("tit_sec", parent=estilos["Normal"], fontSize=12,
                                  fontName="Helvetica-Bold", textColor=BLANCO,
                                  alignment=TA_CENTER)
-        t_tit = Table([[Paragraph(f"━━  {titulo.upper()}  ━━", est_tit)]],
+        t_tit = Table([[Paragraph(titulo.upper(), est_tit)]],
                       colWidths=[usable_w])
         t_tit.setStyle(TableStyle([
             ("BACKGROUND",    (0,0),(-1,-1), AZUL_HEADER),
