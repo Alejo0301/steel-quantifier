@@ -1,19 +1,17 @@
 """
 parser_dxf.py — Lee DXF de despiece de columnas → lista vigas[] para generador_pdf.py
 
-Estructura DXF:
-  C3 grande (ancho ~5.5) : cajón visual del tramo
-  C3 pequeño (ancho ~3.0): cajón de etiquetas con sub-tramos separados por ubicación
-  T2: etiquetas de hierro  |  T3: nombre de columna
-
-Formatos T2:
-  4#5L=7.40     → flexión: cantidad#diámetroL=longitud
-  13#3C/8       → estribos zona: cantidad#diámetroC/espaciado
-  75#3-116cm    → longitud estribo en cm
-  30x30         → sección columna
-  PLACA1/CUBIERTA → inicio de nuevo sub-tramo
-  .90 / .10     → traslapes (ignorados)
-  35 / 1 / 12   → conteos auxiliares (ignorados)
+Formatos T2 reconocidos:
+  4#5L=7.40           → flexión: cantidad#diámetroL=longitud
+  13#3C/8             → estribos zona (ignorado, se usa el texto de longitud)
+  25#3(22x22)-115     → estribo cerrado: cant #diam (base x altura) - long_cm
+  103#3(52x27)-185    → estribo cerrado rectangular
+  206#3(28)-55        → estribo tipo C (rama): cant #diam (dim) - long_cm
+  75#3-116cm          → formato viejo: cant #diam - long cm
+  30x30 / 60x35       → sección columna
+  PLACA1/CUBIERTA     → inicio sub-tramo
+  Es 1 / Son 3        → cantidad de columnas idénticas en ese bloque
+  .90 / 1.41          → traslapes (ignorados)
 """
 
 import re
@@ -26,16 +24,20 @@ TABLA_NSR_DEFAULT = {
     "#10":{"kg_m":7.500},
 }
 
-RE_FLEXION   = re.compile(r'^(\d+)#(\w+)L=([\d.]+)$',    re.IGNORECASE)
-RE_ESTRIBO   = re.compile(r'^(\d+)#(\w+)C/([\d.]+)$',    re.IGNORECASE)
-RE_LONG_EST  = re.compile(r'^(\d+)#(\w+)-([\d.]+)cm$',   re.IGNORECASE)
-RE_SECCION   = re.compile(r'^(\d+)[xX](\d+)$')
-RE_TRASLAPE  = re.compile(r'^\.\d+$')
-RE_NUM_SOLO  = re.compile(r'^\d+$')
-RE_UBICACION = re.compile(r'^(PLACA\d+|CUBIERTA|piso\w*|nivel\w*)$', re.IGNORECASE)
+# ── Patrones ──────────────────────────────────────────────────────────────────
+RE_FLEXION    = re.compile(r'^(\d+)#(\w+)L=([\d.]+)$',             re.IGNORECASE)
+RE_ESTRIBO_C  = re.compile(r'^(\d+)#(\w+)C/([\d.]+)$',             re.IGNORECASE)
+RE_EST_CUAD   = re.compile(r'^(\d+)#(\w+)\((\d+)x(\d+)\)-(\d+)$', re.IGNORECASE)  # 25#3(22x22)-115
+RE_EST_RAMA   = re.compile(r'^(\d+)#(\w+)\((\d+)\)-(\d+)$',        re.IGNORECASE)  # 206#3(28)-55
+RE_LONG_VIE   = re.compile(r'^(\d+)#(\w+)-([\d.]+)cm$',            re.IGNORECASE)  # 75#3-116cm
+RE_SECCION    = re.compile(r'^(\d+)[xX](\d+)$')
+RE_TRASLAPE   = re.compile(r'^[\d]+\.[\d]+$')   # decimales como 1.41, .90, 2.60
+RE_NUM_SOLO   = re.compile(r'^\d+$')
+RE_UBICACION  = re.compile(r'^(PLACA\d*|CUBIERTA|piso\w*|nivel\w*)$', re.IGNORECASE)
+RE_ES_SON     = re.compile(r'^(Es|Son)\s+(\d+)$', re.IGNORECASE)
 
 
-# ── Lectura cruda ──────────────────────────────────────────────────────────
+# ── Lectura cruda ──────────────────────────────────────────────────────────────
 def _leer_pairs(path):
     with open(path, 'r', encoding='latin-1') as f:
         raw = f.read()
@@ -103,19 +105,12 @@ def _en_bbox(t, bbox, m=0.05):
             bbox['y_min']-m <= t['y'] <= bbox['y_max']+m)
 
 
-# ── Dividir textos del cajón pequeño en sub-tramos por ubicación ───────────
-def _dividir_subtramos(txts_pequeno):
-    """
-    Ordena los textos de arriba a abajo y los divide en grupos
-    cada vez que aparece una etiqueta de ubicación (PLACA1, CUBIERTA…).
-    Devuelve lista de (ubicacion, [textos]).
-    """
-    ordenados = sorted(txts_pequeno, key=lambda t: -t['y'])
-    
+# ── Dividir cajón pequeño en sub-tramos por ubicación ─────────────────────────
+def _dividir_subtramos(txts):
+    ordenados = sorted(txts, key=lambda t: -t['y'])
     subtramos = []
     ubic_actual = None
     grupo = []
-
     for t in ordenados:
         txt = t['text'].strip()
         if RE_UBICACION.match(txt):
@@ -125,15 +120,29 @@ def _dividir_subtramos(txts_pequeno):
             grupo = []
         else:
             grupo.append(t)
-
     if grupo or ubic_actual:
         subtramos.append((ubic_actual or "TRAMO", grupo))
-
     return subtramos
 
 
-# ── Construir barras desde listas de flexion/estribos ─────────────────────
-def _construir_barras(flexion, estribos, long_est, seccion, tabla_nsr, cant_est=None):
+# ── Separar T3 agrupados: "Columnas A-3, B-3, C-3" → ["Columna A-3","Columna B-3","Columna C-3"]
+def _separar_nombres_t3(texto):
+    partes = [p.strip() for p in texto.split(',')]
+    nombres = []
+    for p in partes:
+        # Quitar prefijo existente (Columna/Columnas) y reconstruir limpio
+        limpio = re.sub(r'(?i)^columnas?\s+', '', p).strip()
+        nombres.append(f"Columna {limpio}")
+    return nombres
+
+
+# ── Construir barras ───────────────────────────────────────────────────────────
+def _construir_barras(flexion, est_items, seccion, tabla_nsr, cant_cols):
+    """
+    flexion   : lista de {cantidad, diametro, longitud}
+    est_items : lista de {tipo, cantidad, diametro, longitud_total, base, altura}
+    cant_cols : multiplicador (Es 1 / Son 3)
+    """
     barras = []
 
     for b in flexion:
@@ -143,60 +152,109 @@ def _construir_barras(flexion, estribos, long_est, seccion, tabla_nsr, cant_est=
         pu   = round(lt * kg_m, 3)
         pt   = round(pu * b['cantidad'], 3)
         barras.append({
-            'tipo':'BARRA','cantidad':b['cantidad'],'diametro':diam,
-            'longitud':lt,'gancho_izq':0.0,'gancho_der':0.0,
-            'tipo_gancho_izq':None,'tipo_gancho_der':None,
-            'longitud_total':lt,'kg_m':kg_m,'peso_unit':pu,'peso_total':pt,
+            'tipo':'BARRA', 'cantidad':b['cantidad'], 'diametro':diam,
+            'longitud':lt, 'gancho_izq':0.0, 'gancho_der':0.0,
+            'tipo_gancho_izq':None, 'tipo_gancho_der':None,
+            'longitud_total':lt, 'kg_m':kg_m, 'peso_unit':pu, 'peso_total':pt,
         })
 
-    # Usar cant_est del texto 75#3-116cm como fuente primaria de cantidad
-    # Si no existe, sumar desde las líneas NNN#3C/8
-    if cant_est:
-        for diam, cant in cant_est.items():
-            lt = long_est.get(diam, 0.0)
-            if lt == 0.0: continue
-            kg_m = tabla_nsr.get(diam, {}).get('kg_m', 0.0)
-            pu   = round(lt * kg_m, 3)
-            pt   = round(pu * cant, 3)
-            base = alt = 0.0
-            if seccion:
-                try:
-                    p = re.split(r'[xX]', seccion)
-                    base = float(p[0]) / 100.0
-                    alt  = float(p[1]) / 100.0
-                except Exception: pass
+    for e in est_items:
+        diam = e['diametro']
+        lt   = e['longitud_total']
+        cant = e['cantidad']
+        kg_m = tabla_nsr.get(diam, {}).get('kg_m', 0.0)
+        pu   = round(lt * kg_m, 3)
+        pt   = round(pu * cant, 3)
+        base = e.get('base', 0.0)
+        alt  = e.get('altura', 0.0)
+
+        if e['tipo'] == 'ESTRIBO':
             barras.append({
-                'tipo':'ESTRIBO','cantidad':cant,'diametro':diam,
-                'base':base,'altura':alt,'gancho_val':0.0,
-                'longitud_total':lt,'kg_m':kg_m,'peso_unit':pu,'peso_total':pt,
+                'tipo':'ESTRIBO', 'cantidad':cant, 'diametro':diam,
+                'base':base, 'altura':alt, 'gancho_val':0.0,
+                'longitud_total':lt, 'kg_m':kg_m, 'peso_unit':pu, 'peso_total':pt,
             })
-    else:
-        est_diam = defaultdict(int)
-        for e in estribos:
-            est_diam[e['diametro']] += e['cantidad']
-        for diam, cant in est_diam.items():
-            lt = long_est.get(diam, 0.0)
-            if lt == 0.0: continue
-            kg_m = tabla_nsr.get(diam, {}).get('kg_m', 0.0)
-            pu   = round(lt * kg_m, 3)
-            pt   = round(pu * cant, 3)
-            base = alt = 0.0
-            if seccion:
-                try:
-                    p = re.split(r'[xX]', seccion)
-                    base = float(p[0]) / 100.0
-                    alt  = float(p[1]) / 100.0
-                except Exception: pass
+        else:  # GANCHO tipo C
             barras.append({
-                'tipo':'ESTRIBO','cantidad':cant,'diametro':diam,
-                'base':base,'altura':alt,'gancho_val':0.0,
-                'longitud_total':lt,'kg_m':kg_m,'peso_unit':pu,'peso_total':pt,
+                'tipo':'GANCHO', 'cantidad':cant, 'diametro':diam,
+                'base':base, 'altura':0.0, 'gancho_val':0.0,
+                'longitud_total':lt, 'kg_m':kg_m, 'peso_unit':pu, 'peso_total':pt,
             })
 
     return barras
 
 
-# ── Función principal ──────────────────────────────────────────────────────
+# ── Parsear textos del cajón grande (sección, estribos, Es/Son) ────────────────
+def _parsear_grande(txts_g):
+    seccion     = ""
+    cant_cols   = 1
+    est_items   = []
+
+    for t in txts_g:
+        txt = t['text'].strip()
+
+        # Es/Son → cantidad de columnas idénticas
+        m = RE_ES_SON.match(txt)
+        if m:
+            cant_cols = int(m.group(2))
+            continue
+
+        # Sección columna
+        m = RE_SECCION.match(txt)
+        if m:
+            seccion = txt
+            continue
+
+        # Estribo cerrado nuevo: 25#3(22x22)-115
+        m = RE_EST_CUAD.match(txt)
+        if m:
+            cant = int(m.group(1)); diam = f"#{m.group(2)}"
+            base = int(m.group(3)) / 100.0
+            alt  = int(m.group(4)) / 100.0
+            lt   = int(m.group(5)) / 100.0
+            est_items.append({'tipo':'ESTRIBO','cantidad':cant,'diametro':diam,
+                              'base':base,'altura':alt,'longitud_total':lt})
+            continue
+
+        # Estribo rama/C nuevo: 206#3(28)-55
+        m = RE_EST_RAMA.match(txt)
+        if m:
+            cant = int(m.group(1)); diam = f"#{m.group(2)}"
+            base = int(m.group(3)) / 100.0
+            lt   = int(m.group(4)) / 100.0
+            est_items.append({'tipo':'GANCHO','cantidad':cant,'diametro':diam,
+                              'base':base,'altura':0.0,'longitud_total':lt})
+            continue
+
+        # Formato viejo: 75#3-116cm
+        m = RE_LONG_VIE.match(txt)
+        if m:
+            cant = int(m.group(1)); diam = f"#{m.group(2)}"
+            lt   = float(m.group(3)) / 100.0
+            est_items.append({'tipo':'ESTRIBO','cantidad':cant,'diametro':diam,
+                              'base':0.0,'altura':0.0,'longitud_total':lt})
+            continue
+
+    return seccion, cant_cols, est_items
+
+
+# ── Parsear sub-tramo (cajón pequeño) ─────────────────────────────────────────
+def _parsear_subtramo(txts_sub):
+    flexion = []
+    for t in txts_sub:
+        txt = t['text'].strip()
+        if RE_TRASLAPE.match(txt): continue
+        if RE_NUM_SOLO.match(txt): continue
+        if RE_ES_SON.match(txt):   continue
+        m = RE_FLEXION.match(txt)
+        if m:
+            flexion.append({'cantidad':int(m.group(1)),
+                            'diametro':f"#{m.group(2)}",
+                            'longitud':float(m.group(3))})
+    return flexion
+
+
+# ── Función principal ──────────────────────────────────────────────────────────
 def parsear_dxf(path, tabla_nsr=None):
     if tabla_nsr is None:
         tabla_nsr = TABLA_NSR_DEFAULT
@@ -207,118 +265,82 @@ def parsear_dxf(path, tabla_nsr=None):
     txts_t2 = [t for t in textos if t['layer']=='T2']
     txts_t3 = [t for t in textos if t['layer']=='T3']
 
-    # Separar cajones grandes de pequeños por ancho
-    anchos = sorted(set(round(c['x_max']-c['x_min'],1) for c in c3_all))
-    umbral = (anchos[0]+anchos[-1])/2 if len(anchos)>=2 else anchos[0]
+    # Separar cajones grandes / pequeños por ancho
+    anchos  = sorted(set(round(c['x_max']-c['x_min'],1) for c in c3_all))
+    umbral  = (anchos[0]+anchos[-1])/2 if len(anchos)>=2 else anchos[0]
     grandes  = [c for c in c3_all if (c['x_max']-c['x_min']) >  umbral]
     pequenos = [c for c in c3_all if (c['x_max']-c['x_min']) <= umbral]
 
-    # Agrupar por columna (franja X)
     def xk(c): return round(c['x_min'], 0)
     col_keys = sorted(set(xk(c) for c in grandes))
 
     vigas = []
+
     for ck in col_keys:
         col_grandes  = sorted([c for c in grandes  if xk(c)==ck], key=lambda c:-c['y_max'])
         col_pequenos = sorted([c for c in pequenos if xk(c)==ck], key=lambda c:-c['y_max'])
 
-        # Hay 2 cajones grandes por franja (uno por cada columna apilada verticalmente)
-        # Asignar nombre T3 a cada cajón grande por proximidad Y
-        def nombre_para_cajon(grande):
+        # ── Nombre(s) T3 para cada cajón grande por proximidad Y ──────────
+        def nombres_para_cajon(grande):
             if not txts_t3:
-                return "Columna"
+                return ["Columna"]
             x_centro = (grande['x_min'] + grande['x_max']) / 2
-            # Filtrar T3 cercanos en X
-            candidatos = [t for t in txts_t3 if abs(t['x'] - x_centro) < 3.0]
+            candidatos = [t for t in txts_t3 if abs(t['x'] - x_centro) < 3.5]
             if not candidatos:
                 candidatos = txts_t3
-            # El T3 más cercano en Y al tope del cajón
-            return min(candidatos, key=lambda t: abs(t['y'] - grande['y_max']))['text']
+            t3 = min(candidatos, key=lambda t: abs(t['y'] - grande['y_max']))
+            return _separar_nombres_t3(t3['text'])
 
-        for idx_g, grande in enumerate(col_grandes):
-            nombre = nombre_para_cajon(grande)
+        for grande in col_grandes:
+            nombres   = nombres_para_cajon(grande)
 
             # Cajón pequeño del mismo tramo
             pequeno = next((p for p in col_pequenos
                             if p['y_min'] >= grande['y_min']-0.1
                             and p['y_max'] <= grande['y_max']+0.1), None)
 
-            # Textos del cajón grande (excluyendo los del pequeño)
             txts_g_all = [t for t in txts_t2 if _en_bbox(t, grande)]
             txts_p_all = [t for t in txts_t2 if pequeno and _en_bbox(t, pequeno)]
             txts_g_exc = [t for t in txts_g_all if t not in txts_p_all]
 
-            # Del cajón grande: sección, longitud estribo, cantidad estribo, ubicación
-            seccion_global = ""
-            long_est_global = {}
-            cant_est_global = {}
-            ubic_grande = None
-            for t in txts_g_exc:
-                txt = t['text'].strip()
-                if RE_UBICACION.match(txt): ubic_grande = txt.upper()
-                m = RE_LONG_EST.match(txt)
-                if m:
-                    long_est_global[f"#{m.group(2)}"] = float(m.group(3))/100.0
-                    cant_est_global[f"#{m.group(2)}"] = int(m.group(1))
-                m = RE_SECCION.match(txt)
-                if m: seccion_global = txt
+            # Del cajón grande: sección, cant_cols, estribos
+            seccion, cant_cols, est_items = _parsear_grande(txts_g_exc)
 
-            # ── Barras de flexión: determinar sub-tramos primero ────────
+            # Sub-tramos del cajón pequeño
             subtramos = _dividir_subtramos(txts_p_all) if txts_p_all else []
             if not subtramos:
-                subtramos = [(ubic_grande or f"TRAMO{idx_g+1}", [])]
+                subtramos = [("TRAMO1", [])]
 
-            # Ubicación para los estribos: primera ubicación real encontrada
-            ubic_estribos = ubic_grande
-            if not ubic_estribos:
-                for ubic_st, _ in subtramos:
-                    if ubic_st and 'TRAMO' not in ubic_st:
-                        ubic_estribos = ubic_st
-                        break
-            if not ubic_estribos:
-                ubic_estribos = subtramos[0][0] if subtramos else f"TRAMO{idx_g+1}"
+            # Ubicación para los estribos: primera ubicación real
+            ubic_est = next((u for u,_ in subtramos if u and 'TRAMO' not in u), subtramos[0][0])
 
-            # ── Estribos: una sola entrada por cajón grande ──────────────
-            if cant_est_global:
-                barras_est = _construir_barras([], [], long_est_global,
-                                               seccion_global, tabla_nsr, cant_est_global)
+            # ── Estribos: UNA entrada por cajón grande × cant_cols ──────────
+            if est_items:
+                barras_est = _construir_barras([], est_items, seccion, tabla_nsr, cant_cols)
                 if barras_est:
                     peso_est = round(sum(b['peso_total'] for b in barras_est), 3)
-                    vigas.append({
-                        'nombre': nombre, 'ubicacion': ubic_estribos,
-                        'cantidad_vigas': 1, 'seccion': seccion_global,
-                        'barras': barras_est, 'peso_total': peso_est,
-                    })
+                    for nombre in nombres:
+                        vigas.append({
+                            'nombre': nombre, 'ubicacion': ubic_est,
+                            'cantidad_vigas': cant_cols,
+                            'seccion': seccion,
+                            'barras': barras_est, 'peso_total': peso_est,
+                        })
 
+            # ── Flexión: una entrada por sub-tramo × nombre × cant_cols ────
             for ubic, txts_sub in subtramos:
-                ubicacion = ubic or ubic_grande or f"TRAMO{idx_g+1}"
-                flexion  = []
-                seccion  = seccion_global
-
-                for t in txts_sub:
-                    txt = t['text'].strip()
-                    if RE_TRASLAPE.match(txt): continue
-                    if RE_NUM_SOLO.match(txt): continue
-                    m = RE_FLEXION.match(txt)
-                    if m:
-                        flexion.append({'cantidad':int(m.group(1)),
-                                        'diametro':f"#{m.group(2)}",
-                                        'longitud':float(m.group(3))})
-                        continue
-                    m = RE_SECCION.match(txt)
-                    if m:
-                        seccion = txt
-                        continue
-
+                flexion = _parsear_subtramo(txts_sub)
                 if not flexion: continue
-                barras = _construir_barras(flexion, [], {}, seccion, tabla_nsr)
+                barras = _construir_barras(flexion, [], seccion, tabla_nsr, cant_cols)
                 if not barras: continue
                 peso = round(sum(b['peso_total'] for b in barras), 3)
-                vigas.append({
-                    'nombre': nombre, 'ubicacion': ubicacion,
-                    'cantidad_vigas': 1, 'seccion': seccion,
-                    'barras': barras, 'peso_total': peso,
-                })
+                for nombre in nombres:
+                    vigas.append({
+                        'nombre': nombre, 'ubicacion': ubic or ubic_est,
+                        'cantidad_vigas': cant_cols,
+                        'seccion': seccion,
+                        'barras': barras, 'peso_total': peso,
+                    })
 
     return tabla_nsr, vigas
 
@@ -327,9 +349,16 @@ if __name__ == "__main__":
     import sys
     path = sys.argv[1] if len(sys.argv) > 1 else '/mnt/user-data/uploads/DESPIECES_COLUMNAS.DXF'
     tabla, vigas = parsear_dxf(path)
-    peso_total = sum(v['peso_total'] for v in vigas)
-    print(f"\n✅ {len(vigas)} sub-tramos — Peso total: {peso_total:.3f} kg\n")
-    for v in vigas:
-        print(f"  {v['nombre']} / {v['ubicacion']} ({v['seccion']}) — {v['peso_total']:.2f} kg")
-        for b in v['barras']:
-            print(f"    {b['tipo']:8s} {b['diametro']:6s} x{b['cantidad']:3d}  L={b['longitud_total']:.3f}m  Pt={b['peso_total']:.3f}kg")
+
+    nombres_unicos = sorted(set(v['nombre'] for v in vigas))
+    peso_total     = sum(v['peso_total'] * v['cantidad_vigas'] for v in vigas)
+
+    print(f"\n✅ {len(nombres_unicos)} columnas únicas — Peso total: {peso_total:.3f} kg\n")
+    for nombre in nombres_unicos:
+        mis_vigas = [v for v in vigas if v['nombre'] == nombre]
+        peso_col  = sum(v['peso_total'] * v['cantidad_vigas'] for v in mis_vigas)
+        cant      = mis_vigas[0]['cantidad_vigas']
+        print(f"  {nombre} (x{cant}) — {peso_col:.2f} kg")
+        for v in mis_vigas:
+            for b in v['barras']:
+                print(f"    {b['tipo']:8s} {b['diametro']:6s} x{b['cantidad']:3d}  L={b['longitud_total']:.3f}m  Pt={b['peso_total']:.3f}kg")
