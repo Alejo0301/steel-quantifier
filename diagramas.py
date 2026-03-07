@@ -7,6 +7,7 @@ Devuelve imágenes en bytes (PNG) para incrustar en el PDF.
 
 import io
 import math
+import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -157,6 +158,89 @@ def dibujar_estribo(elem):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  GANCHO TIPO C (estribo rama simple de columnas DXF)
+#  Cuerpo vertical largo + arcos redondeados + patas cortas horizontales 90°
+# ─────────────────────────────────────────────────────────────────────────────
+def dibujar_gancho_c(elem):
+    dim  = elem.get("base", 0.28)    # dimensión del gancho (altura del cuerpo)
+    lt   = elem.get("longitud_total", 0.55)
+    diam = elem.get("diametro", "#3")
+
+    # Proporciones fijas en coordenadas de figura
+    alto   = 1.20          # altura visual del cuerpo vertical
+    ancho  = alto * 0.22   # profundidad de la C (≈22% del alto)
+    radio  = alto * 0.10   # radio de esquinas (≈10% del alto)
+    doblez = alto * 0.18   # patas horizontales (≈18% del alto) — cortas
+
+    margin_x = doblez + 0.25
+    margin_y = radio  + 0.20
+    fig_w = ancho + radio + margin_x + 0.55
+    fig_h = alto  + radio * 2 + margin_y * 2
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    ax.set_xlim(-margin_x, ancho + radio + 0.55)
+    ax.set_ylim(-margin_y, alto + radio * 2 + margin_y)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    x0 = 0.0   # x de la apertura izquierda
+    y0 = 0.0   # y inferior de la apertura
+
+    # Pata inferior (horizontal, hacia la izquierda)
+    ax.plot([x0 - doblez, x0], [y0 - radio, y0 - radio],
+            color=COLOR_GANCHO, lw=LW_GANCHO, solid_capstyle="round")
+
+    # Horizontal inferior
+    ax.plot([x0, x0 + ancho], [y0 - radio, y0 - radio],
+            color=COLOR_GANCHO, lw=LW_GANCHO)
+
+    # Arco inferior (esquina inf-der)
+    t_bot = np.linspace(-np.pi/2, 0, 40)
+    ax.plot((x0 + ancho) + radio * np.cos(t_bot),
+            y0            + radio * np.sin(t_bot),
+            color=COLOR_GANCHO, lw=LW_GANCHO)
+
+    # Cuerpo vertical derecho
+    ax.plot([x0 + ancho + radio, x0 + ancho + radio],
+            [y0, y0 + alto],
+            color=COLOR_GANCHO, lw=LW_GANCHO)
+
+    # Arco superior (esquina sup-der)
+    t_top = np.linspace(0, np.pi/2, 40)
+    ax.plot((x0 + ancho)  + radio * np.cos(t_top),
+            (y0 + alto)   + radio * np.sin(t_top),
+            color=COLOR_GANCHO, lw=LW_GANCHO)
+
+    # Horizontal superior
+    ax.plot([x0, x0 + ancho], [y0 + alto + radio, y0 + alto + radio],
+            color=COLOR_GANCHO, lw=LW_GANCHO)
+
+    # Pata superior (horizontal, hacia la izquierda)
+    ax.plot([x0 - doblez, x0], [y0 + alto + radio, y0 + alto + radio],
+            color=COLOR_GANCHO, lw=LW_GANCHO, solid_capstyle="round")
+
+    # Cota vertical (dimensión del gancho)
+    xc  = x0 + ancho + radio + 0.12
+    ym  = y0 + alto / 2
+    dim_cm = int(round(dim * 100))
+    ax.annotate("", xy=(xc, y0 + alto), xytext=(xc, y0),
+                arrowprops=dict(arrowstyle="<->", color="#ffcc00", lw=0.9))
+    ax.text(xc + 0.07, ym, f"{dim_cm}cm",
+            ha="left", va="center", fontsize=6.5, color="#ffcc00")
+
+    # Diámetro
+    ax.text(xc + 0.07, y0 + alto + radio * 0.5, diam,
+            ha="left", va="bottom", fontsize=7, fontweight="bold",
+            color=COLOR_GANCHO)
+
+    # Longitud total debajo
+    ax.text(x0 + ancho / 2, y0 - radio - 0.12, f"L={lt:.3f}m",
+            ha="center", va="top", fontsize=6.5, color="#888888")
+
+    return _fig_a_bytes(fig)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  GANCHO TIPO S (elemento G del txt)
 #  Cuerpo horizontal + gancho izq sube y dobla derecha +
 #                       gancho der baja y dobla izquierda
@@ -225,5 +309,7 @@ def generar_diagrama(elem):
     elif t == "ESTRIBO":
         return dibujar_estribo(elem)
     elif t == "GANCHO":
+        if elem.get("subtipo") == "C":
+            return dibujar_gancho_c(elem)
         return dibujar_gancho(elem)
     return None

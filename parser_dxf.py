@@ -176,7 +176,7 @@ def _construir_barras(flexion, est_items, seccion, tabla_nsr, cant_cols):
             })
         else:  # GANCHO tipo C
             barras.append({
-                'tipo':'GANCHO', 'cantidad':cant, 'diametro':diam,
+                'tipo':'GANCHO', 'subtipo':'C', 'cantidad':cant, 'diametro':diam,
                 'base':base, 'altura':0.0, 'gancho_val':0.0,
                 'longitud_total':lt, 'kg_m':kg_m, 'peso_unit':pu, 'peso_total':pt,
             })
@@ -222,7 +222,7 @@ def _parsear_grande(txts_g):
             cant = int(m.group(1)); diam = f"#{m.group(2)}"
             base = int(m.group(3)) / 100.0
             lt   = int(m.group(4)) / 100.0
-            est_items.append({'tipo':'GANCHO','cantidad':cant,'diametro':diam,
+            est_items.append({'tipo':'GANCHO','subtipo':'C','cantidad':cant,'diametro':diam,
                               'base':base,'altura':0.0,'longitud_total':lt})
             continue
 
