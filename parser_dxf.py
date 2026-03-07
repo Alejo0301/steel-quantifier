@@ -55,6 +55,8 @@ def _extraer_polylines(pairs, layer):
     i = 0
     while i < len(pairs):
         code, val = pairs[i]
+
+        # ── POLYLINE clásica (formato R12/2000) ───────────────────────────────
         if code == "0" and val == "POLYLINE":
             cur_layer = ""; verts = []
             j = i + 1
@@ -75,6 +77,27 @@ def _extraer_polylines(pairs, layer):
                 xs = [v[0] for v in verts]; ys = [v[1] for v in verts]
                 polys.append({'x_min':min(xs),'x_max':max(xs),
                               'y_min':min(ys),'y_max':max(ys)})
+
+        # ── LWPOLYLINE (formato 2004/2007/2010+) ─────────────────────────────
+        elif code == "0" and val == "LWPOLYLINE":
+            cur_layer = ""; verts = []
+            last_x = None
+            j = i + 1
+            while j < len(pairs) and pairs[j][0] != "0":
+                c, v = pairs[j]
+                if c == "8":
+                    cur_layer = v
+                elif c == "10":
+                    last_x = float(v)
+                elif c == "20" and last_x is not None:
+                    verts.append((last_x, float(v)))
+                    last_x = None
+                j += 1
+            if cur_layer == layer and verts:
+                xs = [v[0] for v in verts]; ys = [v[1] for v in verts]
+                polys.append({'x_min':min(xs),'x_max':max(xs),
+                              'y_min':min(ys),'y_max':max(ys)})
+
         i += 1
     return polys
 
