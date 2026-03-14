@@ -180,7 +180,7 @@ def _resumen_viga_por_diametro(viga, col_total_w):
     ]]
 
     for diam in sorted(grupo_long.keys(),
-                       key=lambda x: int(x.replace("#", "").replace("BAJA", "0"))):
+                       key=_sort_diam):
         filas.append([
             Paragraph(diam, est_mini_b),
             Paragraph(str(grupo_cant[diam]), est_mini),
@@ -389,7 +389,7 @@ def _resumen_agrupado(grupos, col_total_w):
         Paragraph("LONG. ACUMULADA (m)",       est_mini_b),
     ]]
     for diam in sorted(grupo_long.keys(),
-                       key=lambda x: int(x.replace("#","").replace("BAJA","0"))):
+                       key=_sort_diam):
         filas.append([
             Paragraph(diam,                         est_mini_b),
             Paragraph(str(grupo_cant[diam]),        est_mini),
@@ -414,6 +414,15 @@ def _resumen_agrupado(grupos, col_total_w):
 # ─────────────────────────────────────────────────────────────────────────────
 #  RESUMEN FINAL COMPLETO
 # ─────────────────────────────────────────────────────────────────────────────
+def _sort_diam(x):
+    s = x.replace("#", "").replace("BAJA", "0").replace("ø", "").replace("mm", "").strip()
+    if "/" in s:
+        try:
+            p = s.split("/"); return float(p[0]) / float(p[1])
+        except: return 99.0
+    try: return float(s.split("x")[0].split("X")[0])
+    except: return 99.0
+
 def _tabla_resumen_final(vigas, col_total_w):
     """Resumen general agrupado por diámetro: peso + longitud acumulada."""
     resumen_peso = defaultdict(float)
@@ -449,7 +458,7 @@ def _tabla_resumen_final(vigas, col_total_w):
     total_cant = 0
 
     for diam in sorted(resumen_peso.keys(),
-                       key=lambda x: int(x.replace("#", "").replace("BAJA", "0"))):
+                       key=_sort_diam):
         peso = resumen_peso[diam]
         lon  = resumen_long[diam]
         cant = resumen_cant[diam]
@@ -616,7 +625,7 @@ def _tabla_resumen_combinado(vigas, columnas, col_total_w, proyecto):
 
     tp, tl, tc = 0.0, 0.0, 0
 
-    for diam in sorted(rp.keys(), key=lambda x: int(x.replace("#","").replace("BAJA","0"))):
+    for diam in sorted(rp.keys(), key=_sort_diam):
         peso = rp[diam]; lon = rl[diam]; cant = rc[diam]
         tp += peso; tl += lon; tc += cant
         filas.append([
