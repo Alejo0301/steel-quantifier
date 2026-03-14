@@ -273,6 +273,9 @@ def _agrupar_barras(vigas):
 # ─────────────────────────────────────────────────────────────────────────────
 #  TABLA DE ELEMENTOS AGRUPADOS
 # ─────────────────────────────────────────────────────────────────────────────
+MANUAL_FONDO  = HexColor("#d0d8e8")   # azul grisáceo más oscuro para filas manuales
+
+
 def _tabla_elementos(grupos, col_widths, item_global):
     """grupos: lista devuelta por _agrupar_barras()"""
     HEADERS = ["ITEM", "DIAGRAMA", "CANT.", "DIÁMETRO",
@@ -280,6 +283,7 @@ def _tabla_elementos(grupos, col_widths, item_global):
 
     filas = [HEADERS]
     row_heights = [20]
+    filas_manuales = []   # índices de filas manuales (para colorear)
 
     for g in grupos:
         elem      = g["elem"]
@@ -305,20 +309,24 @@ def _tabla_elementos(grupos, col_widths, item_global):
             gv_cm = int(round(gv * 100))
             g_label = f"G.{gv_cm:02d}" if gv_cm >= 10 else f"G.{gv_cm}"
             desc_long = f"Pe+2*{g_label}\n={elem['longitud_total']:.3f}m"
+        elif elem["tipo"] == "MALLA":
+            desc_long = f"{elem.get('largo_std', 6.0):.1f}"
         else:
             desc_long = f"{elem['longitud_total']:.3f}"
 
-        # Ubicaciones: si son muchas, separar por coma en varias líneas
         ubicacion_txt = "\n".join(g["ubicaciones"])
 
         est_ubic = ParagraphStyle("ubic", parent=estilos["Normal"],
                                   fontSize=6.5, fontName="Helvetica", alignment=TA_CENTER)
 
+        # Diámetro para mallas muestra el nombre
+        diam_cell = elem.get("nombre_malla", elem["diametro"]) if elem["tipo"] == "MALLA" else elem["diametro"]
+
         fila = [
             Paragraph(item_str,                       est_celda_bold),
             diagrama_cell,
             Paragraph(str(g["cantidad"]),             est_celda),
-            Paragraph(elem["diametro"],               est_celda_bold),
+            Paragraph(diam_cell,                      est_celda_bold),
             Paragraph(desc_long,                      est_celda),
             Paragraph(f"{g['peso_unit']:.3f}",        est_celda),
             Paragraph(f"{g['peso_total']:.3f}",       est_celda_bold),
@@ -327,8 +335,12 @@ def _tabla_elementos(grupos, col_widths, item_global):
         filas.append(fila)
         row_heights.append(2.7 * cm)
 
+        # Marcar fila manual
+        if elem.get("manual", False):
+            filas_manuales.append(len(filas) - 1)
+
     t = Table(filas, colWidths=col_widths, rowHeights=row_heights)
-    t.setStyle(TableStyle([
+    style_cmds = [
         ("BACKGROUND",    (0, 0), (-1, 0), AZUL_CLARO),
         ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE",      (0, 0), (-1, 0), 7.5),
@@ -342,7 +354,12 @@ def _tabla_elementos(grupos, col_widths, item_global):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("LEFTPADDING",   (0, 0), (-1, -1), 3),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 3),
-    ]))
+    ]
+    # Aplicar fondo diferente a filas manuales
+    for fi in filas_manuales:
+        style_cmds.append(("BACKGROUND", (0, fi), (-1, fi), MANUAL_FONDO))
+
+    t.setStyle(TableStyle(style_cmds))
     return t
 
 

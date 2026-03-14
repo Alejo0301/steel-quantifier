@@ -34,6 +34,46 @@ def _fig_a_bytes(fig):
 # ─────────────────────────────────────────────────────────────────────────────
 #  BARRA LONGITUDINAL
 # ─────────────────────────────────────────────────────────────────────────────
+def _dibujar_gancho_lado(ax, x, y0, g, tipo, lado="izq"):
+    """
+    Dibuja un gancho en el extremo de una barra.
+    lado='izq' → el gancho sale hacia la izquierda (x=0)
+    lado='der' → el gancho sale hacia la derecha (x=L)
+    tipo: L90, U180, G135
+    """
+    signo = -1 if lado == "izq" else 1
+
+    if tipo == "L90":
+        # Extensión horizontal + vertical hacia abajo
+        x_ext = x - signo * g
+        ax.plot([x_ext, x], [y0, y0], color=COLOR_GANCHO, lw=LW_GANCHO,
+                solid_capstyle="round")
+        ax.plot([x_ext, x_ext], [y0, y0 - 0.32], color=COLOR_GANCHO,
+                lw=LW_GANCHO, solid_capstyle="round")
+        ax.text(x_ext + signo * g / 2, y0 - 0.52, f"{g:.2f}m",
+                ha="center", va="top", fontsize=6.0, color=COLOR_TEXTO)
+
+    elif tipo == "U180":
+        # Semicírculo de diámetro g, regresa hacia el cuerpo
+        r = g / 2
+        cx = x - signo * r
+        theta = np.linspace(0, math.pi, 40)
+        rx = cx + r * np.cos(theta) * signo
+        ry = y0 - r * np.sin(theta)
+        ax.plot(rx, ry, color=COLOR_GANCHO, lw=LW_GANCHO)
+        ax.text(cx, y0 - g - 0.12, f"{g:.2f}m",
+                ha="center", va="top", fontsize=6.0, color=COLOR_TEXTO)
+
+    elif tipo == "G135":
+        # Diagonal 135° (hacia abajo-adentro)
+        dx = signo * g / math.sqrt(2)
+        dy = -g / math.sqrt(2)
+        ax.plot([x, x - dx], [y0, y0 + dy], color=COLOR_GANCHO,
+                lw=LW_GANCHO, solid_capstyle="round")
+        ax.text(x - dx * 0.5, y0 + dy - 0.12, f"{g:.2f}m",
+                ha="center", va="top", fontsize=6.0, color=COLOR_TEXTO)
+
+
 def dibujar_barra(elem):
     L   = elem["longitud"]
     gi  = elem.get("gancho_izq", 0.0)
@@ -41,50 +81,103 @@ def dibujar_barra(elem):
     ti  = elem.get("tipo_gancho_izq")
     td  = elem.get("tipo_gancho_der")
 
+    extra_v = 0.55  # espacio vertical extra para ganchos U
     total_w = L + gi + gd
-    margin  = total_w * 0.10
+    margin  = max(total_w * 0.10, 0.15)
     fig_w   = max(4.5, total_w * 0.65)
-    fig_h   = 1.8
+    fig_h   = 2.2
 
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
     ax.set_xlim(-gi - margin, L + gd + margin)
-    ax.set_ylim(-0.7, 0.7)
+    ax.set_ylim(-extra_v - 0.2, 0.75)
     ax.axis("off")
 
     y0 = 0.0
-
     ax.plot([0, L], [y0, y0], color=COLOR_BARRA, lw=LW, solid_capstyle="round")
 
+    # Cota de longitud del cuerpo
     ax.annotate("", xy=(L, y0 + 0.38), xytext=(0, y0 + 0.38),
                 arrowprops=dict(arrowstyle="<->", color=COLOR_TEXTO, lw=0.8))
     ax.text(L / 2, y0 + 0.50, f"{L:.2f} m", ha="center", va="bottom",
             fontsize=7, color=COLOR_TEXTO)
 
+    # Ganchos
     if gi > 0 and ti:
-        if ti == "L90":
-            ax.plot([-gi, 0], [y0, y0], color=COLOR_GANCHO, lw=LW_GANCHO,
-                    solid_capstyle="round")
-            ax.plot([-gi, -gi], [y0, y0 - 0.32], color=COLOR_GANCHO,
-                    lw=LW_GANCHO, solid_capstyle="round")
-            ax.text(-gi / 2, y0 - 0.52, f"{gi:.2f} m", ha="center",
-                    va="top", fontsize=6.5, color=COLOR_TEXTO)
-        elif ti == "J180":
-            theta = [math.pi / 2 + t * math.pi / 20 * i for i in range(21)]
-            rx = [-gi / 2 + (gi / 2) * math.cos(t) for t in theta]
-            ry = [y0 + (gi / 2) * math.sin(t) for t in theta]
-            ax.plot(rx, ry, color=COLOR_GANCHO, lw=LW_GANCHO)
-
+        _dibujar_gancho_lado(ax, 0, y0, gi, ti, lado="izq")
     if gd > 0 and td:
-        if td == "L90":
-            ax.plot([L, L + gd], [y0, y0], color=COLOR_GANCHO, lw=LW_GANCHO,
-                    solid_capstyle="round")
-            ax.plot([L + gd, L + gd], [y0, y0 - 0.32], color=COLOR_GANCHO,
-                    lw=LW_GANCHO, solid_capstyle="round")
-            ax.text(L + gd / 2, y0 - 0.52, f"{gd:.2f} m", ha="center",
-                    va="top", fontsize=6.5, color=COLOR_TEXTO)
+        _dibujar_gancho_lado(ax, L, y0, gd, td, lado="der")
 
-    ax.text(L / 2, y0 - 0.26, elem["diametro"], ha="center", va="top",
+    ax.text(L / 2, y0 - 0.15, elem["diametro"], ha="center", va="top",
             fontsize=8, fontweight="bold", color=COLOR_BARRA)
+
+    return _fig_a_bytes(fig)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MALLA ELECTROSOLDADA
+# ─────────────────────────────────────────────────────────────────────────────
+def dibujar_malla(elem):
+    """
+    Diagrama esquemático de malla electrosoldada.
+    Cuadrícula 4 líneas longitudinales (verticales) × 4 transversales (horizontales).
+    Proporcional a sep_lon vs sep_trans.
+    """
+    nombre     = elem.get("nombre_malla", "")
+    sep_lon    = elem.get("sep_lon", 0.15)    # espaciado entre líneas verticales
+    sep_trans  = elem.get("sep_trans", 0.15)  # espaciado entre líneas horizontales
+    diam_long  = elem.get("diam_long", 4)
+    diam_trans = elem.get("diam_trans", 4)
+    ancho      = elem.get("ancho_std", 2.35)
+    largo      = elem.get("largo_std", 6.0)
+
+    N_lon   = 4   # líneas longitudinales (verticales)
+    N_trans = 4   # líneas transversales (horizontales)
+
+    # Proporciones visuales basadas en separaciones
+    ratio = sep_lon / sep_trans if sep_trans > 0 else 1.0
+    w_vis = 3.0
+    h_vis = w_vis / ratio if ratio > 0 else 3.0
+    h_vis = max(1.5, min(h_vis, 5.0))  # limitar altura visual
+
+    margin = 0.5
+    fig_w  = w_vis + 2 * margin
+    fig_h  = h_vis + 2 * margin
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    ax.set_xlim(-margin, w_vis + margin)
+    ax.set_ylim(-margin, h_vis + margin)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    # Líneas longitudinales (verticales — varillas en dirección del largo)
+    xs_lon = [i * w_vis / (N_lon - 1) for i in range(N_lon)]
+    for x in xs_lon:
+        ax.plot([x, x], [0, h_vis], color=COLOR_BARRA, lw=1.8,
+                solid_capstyle="round", alpha=0.85)
+
+    # Líneas transversales (horizontales — varillas en dirección del ancho)
+    ys_trans = [i * h_vis / (N_trans - 1) for i in range(N_trans)]
+    for y in ys_trans:
+        ax.plot([0, w_vis], [y, y], color=COLOR_GANCHO, lw=1.5,
+                solid_capstyle="round", alpha=0.85)
+
+    # Puntos de intersección (soldaduras)
+    for x in xs_lon:
+        for y in ys_trans:
+            ax.plot(x, y, "o", color="#333333", markersize=3.5, zorder=5)
+
+    # Cotas y etiquetas
+    ax.text(w_vis / 2, -margin * 0.55,
+            f"Sep.Long={sep_lon:.2f}m  (ø{diam_long}mm)",
+            ha="center", va="top", fontsize=6.5, color=COLOR_BARRA)
+    ax.text(-margin * 0.55, h_vis / 2,
+            f"Sep.Trans={sep_trans:.2f}m\n(ø{diam_trans}mm)",
+            ha="right", va="center", fontsize=6.0, color=COLOR_GANCHO,
+            rotation=90, linespacing=1.3)
+    ax.text(w_vis / 2, h_vis + margin * 0.35,
+            f"{nombre}  |  {ancho:.2f}m × {largo:.1f}m",
+            ha="center", va="bottom", fontsize=7, fontweight="bold",
+            color=COLOR_BARRA)
 
     return _fig_a_bytes(fig)
 
@@ -308,6 +401,8 @@ def generar_diagrama(elem):
         return dibujar_barra(elem)
     elif t == "ESTRIBO":
         return dibujar_estribo(elem)
+    elif t == "MALLA":
+        return dibujar_malla(elem)
     elif t == "GANCHO":
         if elem.get("subtipo") == "C":
             return dibujar_gancho_c(elem)
