@@ -346,58 +346,11 @@ def render_modulo_manual():
                                label_visibility="collapsed", key="num_cant")
         st.session_state["frm_cant"] = cant
 
-    # ── Fila editable (fucsia) ─────────────────────────────────────────────────
+    # ── Preview fucsia (siempre visible, basado en selectores principales) ──────
     st.markdown("---")
-    st.markdown("**✏️ Ajuste fino — edita cualquier campo antes de agregar:**")
-    col_e1, col_e2, col_e3, col_e4 = st.columns([1, 2, 2, 3])
-
-    with col_e1:
-        cant_ed = st.number_input("Cant.", min_value=1, max_value=9999,
-                                   value=int(cant), key="ed_cant")
-
-    with col_e2:
-        if tipo == "V":
-            dim_ed = st.text_input("Longitud (m)", value=dim_str, key="ed_dim_v",
-                                   help="Longitud del cuerpo en metros. Ej: 3.70")
-        elif tipo == "E":
-            dim_ed = st.text_input("Dimensión BxH (m)", value=dim_str, key="ed_dim_e",
-                                   help="Formato: ancho x alto. Ej: 0.12x0.17")
-        else:
-            dim_ed = dim_str
-            st.text_input("Malla seleccionada", value=dim_str, disabled=True, key="ed_dim_m")
-
-    with col_e3:
-        if tipo == "V":
-            gancho_ed = st.selectbox(
-                "Gancho", list(GANCHOS_BARRA.keys()),
-                format_func=lambda k: GANCHOS_BARRA[k]["label"],
-                index=list(GANCHOS_BARRA.keys()).index(gancho_key),
-                key="ed_gancho_v"
-            )
-            gv_ed = None
-        elif tipo == "E":
-            datos_diam_ed = BARRAS_NSR10.get(diametro, {})
-            gv_def = max(datos_diam_ed.get("G135", GANCHO_MIN), GANCHO_MIN)
-            gv_ed = st.number_input(
-                f"Long. gancho G135° (m) — mín {GANCHO_MIN:.3f}",
-                min_value=GANCHO_MIN, max_value=1.0,
-                value=gv_def, step=0.005, format="%.3f",
-                key="ed_gv_e"
-            )
-            gancho_ed = "G135"
-        else:
-            gancho_ed = ""
-            gv_ed = None
-            st.markdown("—")
-
-    with col_e4:
-        # Preview fucsia
-        resumen_txt = _resumen_fucsia(tipo, diametro,
-                                      dim_ed if tipo in ("V","E") else dim_str,
-                                      gancho_ed if tipo == "V" else gancho_key,
-                                      cant_ed)
-        st.markdown(f'<div class="resumen-manual">BIEN<br>{resumen_txt}</div>',
-                    unsafe_allow_html=True)
+    resumen_txt = _resumen_fucsia(tipo, diametro, dim_str, gancho_key, cant)
+    st.markdown(f'<div class="resumen-manual">BIEN &nbsp;|&nbsp; {resumen_txt}</div>',
+                unsafe_allow_html=True)
 
     # Nombre y ubicación
     col_n1, col_n2 = st.columns(2)
@@ -412,6 +365,51 @@ def render_modulo_manual():
                                   key="ed_ubic")
         st.session_state["frm_ubic"] = ubic_elem
 
+    # ── Ajuste fino OPCIONAL (checkbox) ───────────────────────────────────────
+    usar_ajuste = st.checkbox("✏️ Activar ajuste fino (edición manual de valores)",
+                              value=False, key="chk_ajuste")
+
+    dim_final    = dim_str
+    gancho_final = gancho_key
+    cant_final   = cant
+    gv_ed        = None
+
+    if usar_ajuste:
+        col_e1, col_e2, col_e3 = st.columns([1, 2, 2])
+        with col_e1:
+            cant_final = st.number_input("Cant.", min_value=1, max_value=9999,
+                                         value=int(cant), key="ed_cant")
+        with col_e2:
+            if tipo == "V":
+                dim_final = st.text_input("Longitud (m)", value=dim_str, key="ed_dim_v",
+                                          help="Longitud del cuerpo en metros. Ej: 3.70")
+            elif tipo == "E":
+                dim_final = st.text_input("Dimensión BxH (m)", value=dim_str, key="ed_dim_e",
+                                          help="Formato: ancho x alto. Ej: 0.12x0.17")
+            else:
+                dim_final = dim_str
+                st.text_input("Malla", value=dim_str, disabled=True, key="ed_dim_m")
+        with col_e3:
+            if tipo == "V":
+                gancho_final = st.selectbox(
+                    "Gancho", list(GANCHOS_BARRA.keys()),
+                    format_func=lambda k: GANCHOS_BARRA[k]["label"],
+                    index=list(GANCHOS_BARRA.keys()).index(gancho_key),
+                    key="ed_gancho_v"
+                )
+            elif tipo == "E":
+                datos_diam_ed = BARRAS_NSR10.get(diametro, {})
+                gv_def = max(datos_diam_ed.get("G135", GANCHO_MIN), GANCHO_MIN)
+                gv_ed = st.number_input(
+                    f"Long. gancho G135° (m) — mín {GANCHO_MIN:.3f}",
+                    min_value=GANCHO_MIN, max_value=1.0,
+                    value=gv_def, step=0.005, format="%.3f",
+                    key="ed_gv_e"
+                )
+                gancho_final = "G135"
+            else:
+                st.markdown("—")
+
     # ── Botones ────────────────────────────────────────────────────────────────
     st.markdown("---")
     btn_c1, btn_c2, btn_c3 = st.columns([2, 2, 1])
@@ -419,11 +417,9 @@ def render_modulo_manual():
     with btn_c1:
         btn_label = "✅ Guardar cambios" if editando else "➕ ACEPTAR — Agregar elemento"
         if st.button(btn_label, type="primary", use_container_width=True, key="btn_aceptar"):
-            dim_final    = dim_ed if tipo in ("V","E") else dim_str
-            gancho_final = gancho_ed if tipo == "V" else (gancho_key if tipo == "E" else "")
 
             elem_nuevo = _construir_elemento_manual(
-                tipo, diametro, dim_final, gancho_final, cant_ed,
+                tipo, diametro, dim_final, gancho_final, cant_final,
                 gv_manual_override=gv_ed if tipo == "E" else None
             )
 

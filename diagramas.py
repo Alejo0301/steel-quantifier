@@ -36,41 +36,46 @@ def _fig_a_bytes(fig):
 # ─────────────────────────────────────────────────────────────────────────────
 def _dibujar_gancho_lado(ax, x, y0, g, tipo, lado="izq"):
     """
-    Dibuja un gancho en el extremo de una barra.
-    lado='izq' → el gancho sale hacia la izquierda (x=0)
-    lado='der' → el gancho sale hacia la derecha (x=L)
-    tipo: L90, U180, G135
+    L90:  segmento horizontal HACIA AFUERA del extremo + pata vertical abajo
+          izq: va a la izquierda   der: va a la derecha
+    U180: semicírculo que sale HACIA AFUERA y regresa al mismo nivel
+          izq: abre a la izquierda  der: abre a la derecha
+    G135: diagonal hacia adentro-abajo
     """
-    signo = -1 if lado == "izq" else 1
+    signo_out = -1 if lado == "izq" else 1   # dirección hacia afuera
 
     if tipo == "L90":
-        # Extensión horizontal + vertical hacia abajo
-        x_ext = x - signo * g
-        ax.plot([x_ext, x], [y0, y0], color=COLOR_GANCHO, lw=LW_GANCHO,
+        x_tip = x + signo_out * g
+        ax.plot([x, x_tip], [y0, y0], color=COLOR_GANCHO, lw=LW_GANCHO,
                 solid_capstyle="round")
-        ax.plot([x_ext, x_ext], [y0, y0 - 0.32], color=COLOR_GANCHO,
+        ax.plot([x_tip, x_tip], [y0, y0 - 0.32], color=COLOR_GANCHO,
                 lw=LW_GANCHO, solid_capstyle="round")
-        ax.text(x_ext + signo * g / 2, y0 - 0.52, f"{g:.2f}m",
+        ax.text(x_tip, y0 - 0.50, f"{g:.2f}m",
                 ha="center", va="top", fontsize=6.0, color=COLOR_TEXTO)
 
     elif tipo == "U180":
-        # Semicírculo de diámetro g, regresa hacia el cuerpo
-        r = g / 2
-        cx = x - signo * r
-        theta = np.linspace(0, math.pi, 40)
-        rx = cx + r * np.cos(theta) * signo
-        ry = y0 - r * np.sin(theta)
-        ax.plot(rx, ry, color=COLOR_GANCHO, lw=LW_GANCHO)
-        ax.text(cx, y0 - g - 0.12, f"{g:.2f}m",
-                ha="center", va="top", fontsize=6.0, color=COLOR_TEXTO)
+        # Pata corta: sube en +Y desde el extremo de la barra
+        # Pata larga: desde la punta de la corta
+        #   izq (signo_out=-1) → pata larga en +X (hacia adentro/derecha)
+        #   der (signo_out=+1) → pata larga en -X (hacia adentro/izquierda)
+        corta = g * 0.5
+        larga = g
+        # signo_largo: izq→+1, der→-1  (opuesto a signo_out)
+        signo_largo = -signo_out
+        ax.plot([x, x], [y0, y0 + corta], color=COLOR_GANCHO,
+                lw=LW_GANCHO, solid_capstyle="round")
+        x_larga = x + signo_largo * larga
+        ax.plot([x, x_larga], [y0 + corta, y0 + corta], color=COLOR_GANCHO,
+                lw=LW_GANCHO, solid_capstyle="round")
+        ax.text(x + signo_largo * larga * 0.5, y0 + corta + 0.05, f"{g:.2f}m",
+                ha="center", va="bottom", fontsize=6.0, color=COLOR_TEXTO)
 
     elif tipo == "G135":
-        # Diagonal 135° (hacia abajo-adentro)
-        dx = signo * g / math.sqrt(2)
+        dx = signo_out * g / math.sqrt(2)
         dy = -g / math.sqrt(2)
-        ax.plot([x, x - dx], [y0, y0 + dy], color=COLOR_GANCHO,
+        ax.plot([x, x + dx], [y0, y0 + dy], color=COLOR_GANCHO,
                 lw=LW_GANCHO, solid_capstyle="round")
-        ax.text(x - dx * 0.5, y0 + dy - 0.12, f"{g:.2f}m",
+        ax.text(x + dx * 0.5, y0 + dy - 0.12, f"{g:.2f}m",
                 ha="center", va="top", fontsize=6.0, color=COLOR_TEXTO)
 
 
