@@ -56,6 +56,8 @@ def _init_state():
         "frm_cant":         1,
         "frm_nombre":       "MANUAL",
         "frm_ubic":         "MANUAL",
+        "ultimo_diagrama":  None,   # bytes PNG del último elemento agregado
+        "pdf_manual_bytes": None,   # bytes del PDF generado para visualizar
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -438,6 +440,9 @@ def render_modulo_manual():
                     st.success("✅ Elemento actualizado correctamente")
                 else:
                     st.session_state["elementos_manual"].append(contenedor)
+                    # Guardar diagrama para preview
+                    from diagramas import generar_diagrama
+                    st.session_state["ultimo_diagrama"] = generar_diagrama(elem_nuevo)
                     st.success(f"✅ Elemento agregado — Total: {len(st.session_state['elementos_manual'])}")
                 st.rerun()
             else:
@@ -519,6 +524,11 @@ def render_modulo_manual():
                         st.session_state["editando_idx"] = None
                     st.rerun()
 
+        # ── Preview último elemento agregado ─────────────────────────────────
+        if st.session_state.get("ultimo_diagrama"):
+            st.markdown("**🖼️ Último elemento agregado:**")
+            st.image(st.session_state["ultimo_diagrama"], use_container_width=False, width=420)
+
         st.markdown("---")
         if st.button("🗑️ Limpiar TODOS los elementos manuales", use_container_width=True,
                      key="btn_limpiar"):
@@ -526,10 +536,10 @@ def render_modulo_manual():
             st.session_state["editando_idx"] = None
             st.rerun()
 
-        # PDF solo manuales
+        # PDF solo manuales — visualizar + descargar
         st.markdown("---")
         st.subheader("📄 Generar PDF de elementos manuales")
-        if st.button("🖨️ PDF — Solo elementos manuales", type="primary",
+        if st.button("🖨️ Generar / Visualizar PDF", type="primary",
                      use_container_width=True, key="btn_pdf_manual_inline"):
             with st.spinner("Generando PDF…"):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -537,8 +547,19 @@ def render_modulo_manual():
                 generar_pdf(elems_manual, tmp_pdf, proyecto=f"{proyecto} — MANUAL")
                 pdf_bytes = open(tmp_pdf,"rb").read()
                 os.unlink(tmp_pdf)
-            st.success("✅ PDF listo")
-            st.download_button("⬇️ Descargar PDF manuales", pdf_bytes,
+            st.session_state["pdf_manual_bytes"] = pdf_bytes
+            st.rerun()
+
+        if st.session_state.get("pdf_manual_bytes"):
+            pdf_bytes = st.session_state["pdf_manual_bytes"]
+            import base64
+            b64 = base64.b64encode(pdf_bytes).decode()
+            st.markdown(
+                f'<iframe src="data:application/pdf;base64,{b64}" ' +
+                'width="100%" height="700px" style="border:1px solid #ccc; border-radius:6px;"></iframe>',
+                unsafe_allow_html=True
+            )
+            st.download_button("⬇️ Descargar PDF", pdf_bytes,
                 file_name=f"Manual_{proyecto.replace(' ','_')}.pdf",
                 mime="application/pdf", use_container_width=True,
                 key="dl_pdf_manual_inline")
